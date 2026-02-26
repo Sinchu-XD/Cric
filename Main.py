@@ -43,18 +43,15 @@ class CricbuzzAPI:
         return matches
 
     def live(self):
-        data = self._get("/matches/v1/live")
-        return [m for m in self._extract(data)
+        return [m for m in self._extract(self._get("/matches/v1/live"))
                 if m["state"] not in ["Complete", "Preview"]]
 
     def recent(self):
-        data = self._get("/matches/v1/recent")
-        return [m for m in self._extract(data)
+        return [m for m in self._extract(self._get("/matches/v1/recent"))
                 if m["state"] == "Complete"]
 
     def upcoming(self):
-        data = self._get("/matches/v1/upcoming")
-        return [m for m in self._extract(data)
+        return [m for m in self._extract(self._get("/matches/v1/upcoming"))
                 if m["state"] == "Preview"]
 
     def scorecard(self, match_id):
@@ -81,167 +78,141 @@ def main_menu():
     ])
 
 def back_menu():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Back", callback_data="back")]])
+
+def detail_menu(mid):
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 Scorecard", callback_data=f"score_{mid}")],
+        [InlineKeyboardButton("👥 Squads", callback_data=f"squad_{mid}")],
+        [InlineKeyboardButton("🔴 Live Status", callback_data=f"live_{mid}")],
         [InlineKeyboardButton("⬅ Back", callback_data="back")]
     ])
 
-def match_detail_buttons(match_id):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Scorecard", callback_data=f"score_{match_id}")],
-        [InlineKeyboardButton("👥 Squads", callback_data=f"squad_{match_id}")],
-        [InlineKeyboardButton("📝 Commentary", callback_data=f"comm_{match_id}")],
-        [InlineKeyboardButton("⬅ Back", callback_data="back")]
-    ])
+# ================= FORMATTERS =================
+
+def format_scorecard(data):
+    if "scorecard" not in data:
+        return "No scorecard available."
+
+    text = "📊 FULL SCORECARD\n"
+    text += "="*80 + "\n"
+
+    for inn in data["scorecard"]:
+        text += f"🏏 {inn['batteamname']} - {inn['score']}/{inn['wickets']} ({inn['overs']} overs)\n"
+        text += "-"*80 + "\n"
+        text += "BATTING:\n"
+        text += f"{'Player':25} {'R':>4} {'B':>4} {'4s':>4} {'6s':>4} {'SR':>6}\n"
+        text += "-"*80 + "\n"
+
+        for b in inn["batsman"]:
+            text += f"{b['name'][:25]:25} {b['runs']:>4} {b['balls']:>4} {b['fours']:>4} {b['sixes']:>4} {b['strkrate']:>6}\n"
+
+        text += "\nBOWLING:\n"
+        text += f"{'Bowler':25} {'O':>4} {'M':>4} {'R':>4} {'W':>4} {'Eco':>6}\n"
+        text += "-"*80 + "\n"
+
+        for bw in inn["bowler"]:
+            text += f"{bw['name'][:25]:25} {bw['overs']:>4} {bw['maidens']:>4} {bw['runs']:>4} {bw['wickets']:>4} {bw['economy']:>6}\n"
+
+        text += "\n"
+
+    return text[:4096]
+
+def format_squads(data):
+    text = "👥 SQUADS\n"
+    text += "="*80 + "\n"
+
+    for tk in ["team1", "team2"]:
+        team = data[tk]["team"]["teamname"]
+        text += f"🏏 {team}\n"
+        text += "-"*50 + "\n"
+
+        for grp in data[tk]["players"]:
+            text += f"{grp['category'].upper()}:\n"
+            for p in grp["player"]:
+                cap = " (C)" if p["captain"] else ""
+                wk = " (WK)" if p["keeper"] else ""
+                text += f"- {p['name']}{cap}{wk} - {p['role']}\n"
+            text += "\n"
+
+    return text[:4096]
+
+def format_live(data):
+    mini = data.get("miniscore")
+    header = data.get("matchheaders", {})
+    if not mini:
+        return "No live data."
+
+    text = "🔴 LIVE STATUS\n"
+    text += "="*80 + "\n"
+    text += f"Status : {header.get('status')}\n"
+    text += f"Score  : {mini['batteamscore']['teamscore']}/{mini['batteamscore']['teamwkts']}\n"
+    text += f"Run Rate : {mini.get('crr')}\n\n"
+
+    text += f"Striker      : {mini['batsmanstriker']['name']} {mini['batsmanstriker']['runs']}({mini['batsmanstriker']['balls']})\n"
+    text += f"Non-Striker  : {mini['batsmannonstriker']['name']} {mini['batsmannonstriker']['runs']}({mini['batsmannonstriker']['balls']})\n"
+    text += f"Bowler       : {mini['bowlerstriker']['name']} {mini['bowlerstriker']['overs']} overs\n"
+
+    return text[:4096]
 
 # ================= START =================
 
 @app.on_message(filters.command("start"))
 async def start(client, message):
-    await message.reply_text(
-        "🏏 **ABHI CRICKET BOT**\n\nSelect Option:",
-        reply_markup=main_menu()
-    )
+    await message.reply_text("🏏 ABHI CRICKET BOT\n\nSelect Option:",
+                             reply_markup=main_menu())
 
 # ================= CALLBACK =================
 
 @app.on_callback_query()
-async def callback_handler(client, query):
-    data = query.data
+async def cb(client, query):
+    d = query.data
 
-    # ===== BACK =====
-    if data == "back":
-        await query.message.edit_text(
-            "🏏 **ABHI CRICKET BOT**\n\nSelect Option:",
-            reply_markup=main_menu()
-        )
+    if d == "back":
+        await query.message.edit_text("🏏 ABHI CRICKET BOT\n\nSelect Option:",
+                                      reply_markup=main_menu())
         return
 
-    # ===== LIVE =====
-    if data == "live":
-        matches = api.live()[:10]
+    if d in ["live", "recent", "upcoming"]:
+        matches = getattr(api, d)()[:10]
         buttons = []
-        text = "🔴 LIVE MATCHES\n\n"
+        text = f"{d.upper()} MATCHES\n\n"
 
         for m in matches:
             text += f"{m['team1']} vs {m['team2']}\n{m['status']}\n\n"
-            buttons.append(
-                [InlineKeyboardButton(
-                    f"{m['team1']} vs {m['team2']}",
-                    callback_data=f"match_{m['id']}"
-                )]
-            )
+            buttons.append([InlineKeyboardButton(
+                f"{m['team1']} vs {m['team2']}",
+                callback_data=f"match_{m['id']}"
+            )])
 
         buttons.append([InlineKeyboardButton("⬅ Back", callback_data="back")])
 
-        await query.message.edit_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
+        await query.message.edit_text(text,
+                                      reply_markup=InlineKeyboardMarkup(buttons))
         return
 
-    # ===== RECENT =====
-    if data == "recent":
-        matches = api.recent()[:10]
-        buttons = []
-        text = "🔵 RECENT MATCHES\n\n"
-
-        for m in matches:
-            text += f"{m['team1']} vs {m['team2']}\n{m['status']}\n\n"
-            buttons.append(
-                [InlineKeyboardButton(
-                    f"{m['team1']} vs {m['team2']}",
-                    callback_data=f"match_{m['id']}"
-                )]
-            )
-
-        buttons.append([InlineKeyboardButton("⬅ Back", callback_data="back")])
-
-        await query.message.edit_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
+    if d.startswith("match_"):
+        mid = d.split("_")[1]
+        await query.message.edit_text("Select Match Details:",
+                                      reply_markup=detail_menu(mid))
         return
 
-    # ===== UPCOMING =====
-    if data == "upcoming":
-        matches = api.upcoming()[:10]
-        buttons = []
-        text = "🟢 UPCOMING MATCHES\n\n"
-
-        for m in matches:
-            text += f"{m['team1']} vs {m['team2']}\n{m['status']}\n\n"
-            buttons.append(
-                [InlineKeyboardButton(
-                    f"{m['team1']} vs {m['team2']}",
-                    callback_data=f"match_{m['id']}"
-                )]
-            )
-
-        buttons.append([InlineKeyboardButton("⬅ Back", callback_data="back")])
-
-        await query.message.edit_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
+    if d.startswith("score_"):
+        mid = d.split("_")[1]
+        await query.message.edit_text(format_scorecard(api.scorecard(mid)),
+                                      reply_markup=detail_menu(mid))
         return
 
-    # ===== MATCH SELECT =====
-    if data.startswith("match_"):
-        match_id = data.split("_")[1]
-        await query.message.edit_text(
-            "Select Match Details:",
-            reply_markup=match_detail_buttons(match_id)
-        )
+    if d.startswith("squad_"):
+        mid = d.split("_")[1]
+        await query.message.edit_text(format_squads(api.squads(mid)),
+                                      reply_markup=detail_menu(mid))
         return
 
-    # ===== SCORECARD =====
-    if data.startswith("score_"):
-        match_id = data.split("_")[1]
-        sc = api.scorecard(match_id)
-        text = "📊 SCORECARD\n\n"
-
-        if "scorecard" in sc:
-            for inn in sc["scorecard"]:
-                text += f"{inn['batteamname']} - {inn['score']}/{inn['wickets']}\n"
-        else:
-            text += "No scorecard available."
-
-        await query.message.edit_text(
-            text,
-            reply_markup=match_detail_buttons(match_id)
-        )
-        return
-
-    # ===== SQUADS =====
-    if data.startswith("squad_"):
-        match_id = data.split("_")[1]
-        sq = api.squads(match_id)
-        text = "👥 SQUADS\n\n"
-
-        for team_key in ["team1", "team2"]:
-            text += sq[team_key]["team"]["teamname"] + "\n"
-
-        await query.message.edit_text(
-            text,
-            reply_markup=match_detail_buttons(match_id)
-        )
-        return
-
-    # ===== COMMENTARY =====
-    if data.startswith("comm_"):
-        match_id = data.split("_")[1]
-        cm = api.commentary(match_id)
-        text = "📝 COMMENTARY\n\n"
-
-        if "miniscore" in cm:
-            text += cm["miniscore"].get("lastwkt", "Live Update")
-        else:
-            text += "No commentary available."
-
-        await query.message.edit_text(
-            text,
-            reply_markup=match_detail_buttons(match_id)
-        )
+    if d.startswith("live_"):
+        mid = d.split("_")[1]
+        await query.message.edit_text(format_live(api.commentary(mid)),
+                                      reply_markup=detail_menu(mid))
         return
 
 # ================= RUN =================
