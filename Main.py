@@ -1,6 +1,7 @@
 import requests
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.enums import ParseMode
 
 # ================= CONFIG =================
 API_ID = 35362137
@@ -182,15 +183,15 @@ async def cb(client, query):
             await query.message.edit_text(
                 "🏏 <b>ABHI CRICKET BOT</b>\n\nSelect Option:",
                 reply_markup=main_menu(),
-                parse_mode="html"
+                parse_mode=ParseMode.HTML
             )
             return
 
 
         # ================= MATCH LIST =================
         if d in ["live", "recent", "upcoming"]:
+
             matches = getattr(api, d)()[:10]
-            buttons = []
 
             title_map = {
                 "live": "🔴 LIVE MATCHES",
@@ -199,17 +200,21 @@ async def cb(client, query):
             }
 
             text = f"<b>{title_map[d]}</b>\n\n"
+            buttons = []
 
-            for m in matches:
-                text += f"🏏 <b>{m['team1']} vs {m['team2']}</b>\n"
-                text += f"Status: {m['status']}\n\n"
+            if not matches:
+                text += "No matches found."
+            else:
+                for m in matches:
+                    text += f"🏏 <b>{m['team1']} vs {m['team2']}</b>\n"
+                    text += f"Status: {m['status']}\n\n"
 
-                buttons.append([
-                    InlineKeyboardButton(
-                        f"{m['team1']} vs {m['team2']}",
-                        callback_data=f"match_{m['id']}"
-                    )
-                ])
+                    buttons.append([
+                        InlineKeyboardButton(
+                            f"{m['team1']} vs {m['team2']}",
+                            callback_data=f"match_{m['id']}"
+                        )
+                    ])
 
             buttons.append([
                 InlineKeyboardButton("⬅ Back", callback_data="back")
@@ -218,19 +223,20 @@ async def cb(client, query):
             await query.message.edit_text(
                 text,
                 reply_markup=InlineKeyboardMarkup(buttons),
-                parse_mode="html"
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True
             )
             return
 
 
-        # ================= MATCH DETAILS MENU =================
+        # ================= MATCH DETAIL MENU =================
         if d.startswith("match_"):
             mid = d.split("_")[1]
 
             await query.message.edit_text(
                 "📂 <b>Select Match Details</b>",
                 reply_markup=detail_menu(mid),
-                parse_mode="html"
+                parse_mode=ParseMode.HTML
             )
             return
 
@@ -239,12 +245,13 @@ async def cb(client, query):
         if d.startswith("score_"):
             mid = d.split("_")[1]
 
-            text = format_scorecard(api.scorecard(mid))
+            score_data = api.scorecard(mid)
+            text = format_scorecard(score_data)
 
             await query.message.edit_text(
                 text,
                 reply_markup=detail_menu(mid),
-                parse_mode="html",
+                parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True
             )
             return
@@ -254,12 +261,13 @@ async def cb(client, query):
         if d.startswith("squad_"):
             mid = d.split("_")[1]
 
-            text = format_squads(api.squads(mid))
+            squad_data = api.squads(mid)
+            text = format_squads(squad_data)
 
             await query.message.edit_text(
                 text,
                 reply_markup=detail_menu(mid),
-                parse_mode="html"
+                parse_mode=ParseMode.HTML
             )
             return
 
@@ -268,20 +276,21 @@ async def cb(client, query):
         if d.startswith("live_"):
             mid = d.split("_")[1]
 
-            text = format_live(api.commentary(mid))
+            live_data = api.commentary(mid)
+            text = format_live(live_data)
 
             await query.message.edit_text(
                 text,
                 reply_markup=detail_menu(mid),
-                parse_mode="html"
+                parse_mode=ParseMode.HTML
             )
             return
 
 
     except Exception as e:
         await query.message.edit_text(
-            f"⚠ Error Occurred:\n<code>{e}</code>",
-            parse_mode="html"
+            f"⚠ <b>Error Occurred</b>\n\n<code>{e}</code>",
+            parse_mode=ParseMode.HTML
         )
 # ================= RUN =================
 app.run()
