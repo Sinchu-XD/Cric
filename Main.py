@@ -7,7 +7,7 @@ from pyrogram.enums import ParseMode
 API_ID = 35362137
 API_HASH = "c3c3e167ea09bc85369ca2fa3c1be790"
 BOT_TOKEN = "8490783791:AAFT8DygQAO5cC-Bg6yi_D-0c7wOlIKDFdA"
-RAPID_API_KEY = "1bf70049e7msh71db390a6f430e7p125822jsnb7c6630377f7"
+RAPID_API_KEY = "05f9848096mshc0acbed9073b9a1p16fea7jsnae5ab08f197e"
 
 # ================= API =================
 
