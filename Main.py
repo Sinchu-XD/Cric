@@ -135,17 +135,28 @@ def format_strike_rate(data):
     text += "<pre>"
 
     for inn in data["scorecard"]:
-        text += "=" * 50 + "\n"
+        text += "=" * 55 + "\n"
         text += f"{inn['batteamname']}\n"
-        text += "-" * 50 + "\n"
+        text += "-" * 55 + "\n"
 
-        text += f"{'Player':22} {'Runs':>5} {'Balls':>5} {'SR':>8}\n"
-        text += "-" * 50 + "\n"
+        # Header (compact width to prevent wrap)
+        text += f"{'Player':18} {'R':>4} {'B':>4} {'SR':>7}\n"
+        text += "-" * 55 + "\n"
 
-        for b in inn["batsman"]:
-            if int(b["balls"]) > 0:
-                name = b["name"][:22]
-                text += f"{name:22} {b['runs']:>5} {b['balls']:>5} {b['strkrate']:>8}\n"
+        # Sort by highest strike rate (optional pro touch)
+        batsmen = sorted(
+            [b for b in inn["batsman"] if int(b["balls"]) > 0],
+            key=lambda x: float(x["strkrate"]),
+            reverse=True
+        )
+
+        for b in batsmen:
+            name = b["name"][:18]  # prevent overflow
+            runs = b["runs"]
+            balls = b["balls"]
+            sr = f"{float(b['strkrate']):.2f}"
+
+            text += f"{name:18} {runs:>4} {balls:>4} {sr:>7}\n"
 
         text += "\n"
 
