@@ -94,29 +94,36 @@ def format_scorecard(data):
     if "scorecard" not in data:
         return "No scorecard available."
 
-    text = "📊 FULL SCORECARD\n"
-    text += "="*80 + "\n"
+    text = "<b>📊 FULL SCORECARD</b>\n"
+    text += "<pre>"
 
     for inn in data["scorecard"]:
-        text += f"🏏 {inn['batteamname']} - {inn['score']}/{inn['wickets']} ({inn['overs']} overs)\n"
-        text += "-"*80 + "\n"
-        text += "BATTING:\n"
-        text += f"{'Player':25} {'R':>4} {'B':>4} {'4s':>4} {'6s':>4} {'SR':>6}\n"
-        text += "-"*80 + "\n"
+        text += "=" * 60 + "\n"
+        text += f"{inn['batteamname']} - {inn['score']}/{inn['wickets']} ({inn['overs']} ov)\n"
+        text += "-" * 60 + "\n"
+
+        # Batting Header
+        text += f"{'Player':20} {'R':>3} {'B':>3} {'4s':>3} {'6s':>3} {'SR':>6}\n"
+        text += "-" * 60 + "\n"
 
         for b in inn["batsman"]:
-            text += f"{b['name'][:25]:25} {b['runs']:>4} {b['balls']:>4} {b['fours']:>4} {b['sixes']:>4} {b['strkrate']:>6}\n"
-
-        text += "\nBOWLING:\n"
-        text += f"{'Bowler':25} {'O':>4} {'M':>4} {'R':>4} {'W':>4} {'Eco':>6}\n"
-        text += "-"*80 + "\n"
-
-        for bw in inn["bowler"]:
-            text += f"{bw['name'][:25]:25} {bw['overs']:>4} {bw['maidens']:>4} {bw['runs']:>4} {bw['wickets']:>4} {bw['economy']:>6}\n"
+            name = b['name'][:20]
+            text += f"{name:20} {b['runs']:>3} {b['balls']:>3} {b['fours']:>3} {b['sixes']:>3} {b['strkrate']:>6}\n"
 
         text += "\n"
 
-    return text[:4096]
+        # Bowling Header
+        text += f"{'Bowler':20} {'O':>4} {'M':>3} {'R':>3} {'W':>3} {'Eco':>6}\n"
+        text += "-" * 60 + "\n"
+
+        for bw in inn["bowler"]:
+            name = bw['name'][:20]
+            text += f"{name:20} {bw['overs']:>4} {bw['maidens']:>3} {bw['runs']:>3} {bw['wickets']:>3} {bw['economy']:>6}\n"
+
+        text += "\n"
+
+    text += "</pre>"
+    return text
 
 def format_squads(data):
     text = "👥 SQUADS\n"
@@ -168,52 +175,113 @@ async def start(client, message):
 async def cb(client, query):
     d = query.data
 
-    if d == "back":
-        await query.message.edit_text("🏏 ABHI CRICKET BOT\n\nSelect Option:",
-                                      reply_markup=main_menu())
-        return
+    try:
 
-    if d in ["live", "recent", "upcoming"]:
-        matches = getattr(api, d)()[:10]
-        buttons = []
-        text = f"{d.upper()} MATCHES\n\n"
+        # ================= BACK =================
+        if d == "back":
+            await query.message.edit_text(
+                "🏏 <b>ABHI CRICKET BOT</b>\n\nSelect Option:",
+                reply_markup=main_menu(),
+                parse_mode="html"
+            )
+            return
 
-        for m in matches:
-            text += f"{m['team1']} vs {m['team2']}\n{m['status']}\n\n"
-            buttons.append([InlineKeyboardButton(
-                f"{m['team1']} vs {m['team2']}",
-                callback_data=f"match_{m['id']}"
-            )])
 
-        buttons.append([InlineKeyboardButton("⬅ Back", callback_data="back")])
+        # ================= MATCH LIST =================
+        if d in ["live", "recent", "upcoming"]:
+            matches = getattr(api, d)()[:10]
+            buttons = []
 
-        await query.message.edit_text(text,
-                                      reply_markup=InlineKeyboardMarkup(buttons))
-        return
+            title_map = {
+                "live": "🔴 LIVE MATCHES",
+                "recent": "🔵 RECENT MATCHES",
+                "upcoming": "🟢 UPCOMING MATCHES"
+            }
 
-    if d.startswith("match_"):
-        mid = d.split("_")[1]
-        await query.message.edit_text("Select Match Details:",
-                                      reply_markup=detail_menu(mid))
-        return
+            text = f"<b>{title_map[d]}</b>\n\n"
 
-    if d.startswith("score_"):
-        mid = d.split("_")[1]
-        await query.message.edit_text(format_scorecard(api.scorecard(mid)),
-                                      reply_markup=detail_menu(mid))
-        return
+            for m in matches:
+                text += f"🏏 <b>{m['team1']} vs {m['team2']}</b>\n"
+                text += f"Status: {m['status']}\n\n"
 
-    if d.startswith("squad_"):
-        mid = d.split("_")[1]
-        await query.message.edit_text(format_squads(api.squads(mid)),
-                                      reply_markup=detail_menu(mid))
-        return
+                buttons.append([
+                    InlineKeyboardButton(
+                        f"{m['team1']} vs {m['team2']}",
+                        callback_data=f"match_{m['id']}"
+                    )
+                ])
 
-    if d.startswith("live_"):
-        mid = d.split("_")[1]
-        await query.message.edit_text(format_live(api.commentary(mid)),
-                                      reply_markup=detail_menu(mid))
-        return
+            buttons.append([
+                InlineKeyboardButton("⬅ Back", callback_data="back")
+            ])
 
+            await query.message.edit_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode="html"
+            )
+            return
+
+
+        # ================= MATCH DETAILS MENU =================
+        if d.startswith("match_"):
+            mid = d.split("_")[1]
+
+            await query.message.edit_text(
+                "📂 <b>Select Match Details</b>",
+                reply_markup=detail_menu(mid),
+                parse_mode="html"
+            )
+            return
+
+
+        # ================= SCORECARD =================
+        if d.startswith("score_"):
+            mid = d.split("_")[1]
+
+            text = format_scorecard(api.scorecard(mid))
+
+            await query.message.edit_text(
+                text,
+                reply_markup=detail_menu(mid),
+                parse_mode="html",
+                disable_web_page_preview=True
+            )
+            return
+
+
+        # ================= SQUADS =================
+        if d.startswith("squad_"):
+            mid = d.split("_")[1]
+
+            text = format_squads(api.squads(mid))
+
+            await query.message.edit_text(
+                text,
+                reply_markup=detail_menu(mid),
+                parse_mode="html"
+            )
+            return
+
+
+        # ================= LIVE STATUS =================
+        if d.startswith("live_"):
+            mid = d.split("_")[1]
+
+            text = format_live(api.commentary(mid))
+
+            await query.message.edit_text(
+                text,
+                reply_markup=detail_menu(mid),
+                parse_mode="html"
+            )
+            return
+
+
+    except Exception as e:
+        await query.message.edit_text(
+            f"⚠ Error Occurred:\n<code>{e}</code>",
+            parse_mode="html"
+        )
 # ================= RUN =================
 app.run()
