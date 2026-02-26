@@ -1,170 +1,248 @@
-import os
-import asyncio
-import httpx
+import requests
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+# ================= CONFIG =================
 API_ID = 35362137
 API_HASH = "c3c3e167ea09bc85369ca2fa3c1be790"
 BOT_TOKEN = "8490783791:AAFT8DygQAO5cC-Bg6yi_D-0c7wOlIKDFdA"
 RAPID_API_KEY = "1bf70049e7msh71db390a6f430e7p125822jsnb7c6630377f7"
 
-BASE = "https://cricbuzz-cricket2.p.rapidapi.com"
+# ================= API =================
 
-HEADERS = {
-    "x-rapidapi-key": RAPID_API_KEY,
-    "x-rapidapi-host": "cricbuzz-cricket2.p.rapidapi.com"
-}
+class CricbuzzAPI:
+    BASE_URL = "https://cricbuzz-cricket2.p.rapidapi.com"
 
-app = Client("CricketBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+    def __init__(self, key):
+        self.headers = {
+            "x-rapidapi-key": key,
+            "x-rapidapi-host": "cricbuzz-cricket2.p.rapidapi.com"
+        }
 
-active_alerts = {}
+    def _get(self, endpoint):
+        r = requests.get(f"{self.BASE_URL}{endpoint}",
+                         headers=self.headers,
+                         timeout=10)
+        r.raise_for_status()
+        return r.json()
 
-# ---------------- FETCH ---------------- #
+    def _extract(self, data):
+        matches = []
+        for t in data.get("typeMatches", []):
+            for s in t.get("seriesMatches", []):
+                wrap = s.get("seriesAdWrapper", {})
+                for m in wrap.get("matches", []):
+                    info = m.get("matchInfo", {})
+                    matches.append({
+                        "id": info.get("matchId"),
+                        "team1": info.get("team1", {}).get("teamName"),
+                        "team2": info.get("team2", {}).get("teamName"),
+                        "status": info.get("status"),
+                        "state": info.get("state")
+                    })
+        return matches
 
-async def fetch(endpoint):
-    print("\n[FETCH]", endpoint)
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.get(f"{BASE}{endpoint}", headers=HEADERS)
-            print("[STATUS]", r.status_code)
-            r.raise_for_status()
-            data = r.json()
-            print("[JSON KEYS]", list(data.keys()) if isinstance(data, dict) else "Not Dict")
-            return data
-    except Exception as e:
-        print("[FETCH ERROR]", e)
-        return {}
+    def live(self):
+        data = self._get("/matches/v1/live")
+        return [m for m in self._extract(data)
+                if m["state"] not in ["Complete", "Preview"]]
 
-# ---------------- SAFE EDIT ---------------- #
+    def recent(self):
+        data = self._get("/matches/v1/recent")
+        return [m for m in self._extract(data)
+                if m["state"] == "Complete"]
 
-async def safe_edit(message, text, markup=None):
-    if not text or text.strip() == "":
-        text = "⚠️ No data available."
+    def upcoming(self):
+        data = self._get("/matches/v1/upcoming")
+        return [m for m in self._extract(data)
+                if m["state"] == "Preview"]
 
-    if len(text) > 4000:
-        text = text[:4000]
+    def scorecard(self, match_id):
+        return self._get(f"/mcenter/v1/{match_id}/scard")
 
-    try:
-        await message.edit_text(text, reply_markup=markup)
-    except Exception as e:
-        print("[EDIT FAILED]", e)
-        try:
-            await message.reply_text(text, reply_markup=markup)
-        except Exception as e2:
-            print("[REPLY FAILED]", e2)
+    def squads(self, match_id):
+        return self._get(f"/mcenter/v1/{match_id}/teams")
 
-# ---------------- FORMAT SCORE ---------------- #
+    def commentary(self, match_id):
+        return self._get(f"/mcenter/v1/{match_id}/leanback")
 
-def format_scorecard(data):
-    print("[FORMAT] Called")
 
-    if not data or "scoreCard" not in data:
-        print("[FORMAT] No scoreCard key")
-        return "⚠️ Scorecard not available."
+api = CricbuzzAPI(RAPID_API_KEY)
+app = Client("cricket_bot", bot_token=BOT_TOKEN,
+             api_id=API_ID, api_hash=API_HASH)
 
-    if not data["scoreCard"]:
-        print("[FORMAT] scoreCard empty")
-        return "⚠️ Match not started or data unavailable."
+# ================= MENUS =================
 
-    text = ""
+def main_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔴 Live Matches", callback_data="live")],
+        [InlineKeyboardButton("🔵 Recent Matches", callback_data="recent")],
+        [InlineKeyboardButton("🟢 Upcoming Matches", callback_data="upcoming")]
+    ])
 
-    for inning in data["scoreCard"]:
-        team = inning.get("batTeamDetails", {}).get("batTeamName", "Unknown")
-        score = inning.get("scoreDetails", {})
+def back_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅ Back", callback_data="back")]
+    ])
 
-        text += f"🏏 {team} – {score.get('runs',0)}/{score.get('wickets',0)} ({score.get('overs',0)} Overs)\n\n"
+def match_detail_buttons(match_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 Scorecard", callback_data=f"score_{match_id}")],
+        [InlineKeyboardButton("👥 Squads", callback_data=f"squad_{match_id}")],
+        [InlineKeyboardButton("📝 Commentary", callback_data=f"comm_{match_id}")],
+        [InlineKeyboardButton("⬅ Back", callback_data="back")]
+    ])
 
-    return text
-
-# ---------------- START ---------------- #
+# ================= START =================
 
 @app.on_message(filters.command("start"))
-async def start(_, message):
-    print("[START COMMAND]")
+async def start(client, message):
+    await message.reply_text(
+        "🏏 **ABHI CRICKET BOT**\n\nSelect Option:",
+        reply_markup=main_menu()
+    )
 
-    buttons = [
-        [InlineKeyboardButton("🔴 Live", callback_data="live")],
-        [InlineKeyboardButton("📅 Upcoming", callback_data="upcoming")],
-        [InlineKeyboardButton("📊 Recent", callback_data="recent")]
-    ]
-
-    await message.reply_text("🏏 Cricket Center", reply_markup=InlineKeyboardMarkup(buttons))
-
-# ---------------- DEBUG ALL CALLBACKS ---------------- #
+# ================= CALLBACK =================
 
 @app.on_callback_query()
-async def debug_callback(client, callback):
-    print("🔥 CALLBACK RECEIVED:", callback.data)
-    await callback.answer()
+async def callback_handler(client, query):
+    data = query.data
 
-# ---------------- MATCH LIST ---------------- #
+    # ===== BACK =====
+    if data == "back":
+        await query.message.edit_text(
+            "🏏 **ABHI CRICKET BOT**\n\nSelect Option:",
+            reply_markup=main_menu()
+        )
+        return
 
-@app.on_callback_query(filters.regex("^(live|upcoming|recent)$"))
-async def match_list(_, callback):
-    print("[MATCH LIST]", callback.data)
-    await callback.answer()
+    # ===== LIVE =====
+    if data == "live":
+        matches = api.live()[:10]
+        buttons = []
+        text = "🔴 LIVE MATCHES\n\n"
 
-    endpoint_map = {
-        "live": "/matches/v1/live",
-        "upcoming": "/matches/v1/upcoming",
-        "recent": "/matches/v1/recent"
-    }
+        for m in matches:
+            text += f"{m['team1']} vs {m['team2']}\n{m['status']}\n\n"
+            buttons.append(
+                [InlineKeyboardButton(
+                    f"{m['team1']} vs {m['team2']}",
+                    callback_data=f"match_{m['id']}"
+                )]
+            )
 
-    data = await fetch(endpoint_map[callback.data])
-    buttons = []
+        buttons.append([InlineKeyboardButton("⬅ Back", callback_data="back")])
 
-    for t in data.get("typeMatches", []):
-        for s in t.get("seriesMatches", []):
-            for m in s.get("seriesAdWrapper", {}).get("matches", []):
-                info = m.get("matchInfo", {})
-                match_id = info.get("matchId")
-                name = f"{info.get('team1',{}).get('teamName')} vs {info.get('team2',{}).get('teamName')}"
-                if match_id:
-                    buttons.append([InlineKeyboardButton(name, callback_data=f"match_{match_id}")])
+        await query.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        return
 
-    if not buttons:
-        buttons = [[InlineKeyboardButton("⬅ Back", callback_data="back")]]
+    # ===== RECENT =====
+    if data == "recent":
+        matches = api.recent()[:10]
+        buttons = []
+        text = "🔵 RECENT MATCHES\n\n"
 
-    await safe_edit(callback.message, "🏏 Select Match", InlineKeyboardMarkup(buttons))
+        for m in matches:
+            text += f"{m['team1']} vs {m['team2']}\n{m['status']}\n\n"
+            buttons.append(
+                [InlineKeyboardButton(
+                    f"{m['team1']} vs {m['team2']}",
+                    callback_data=f"match_{m['id']}"
+                )]
+            )
 
-# ---------------- MATCH MENU ---------------- #
+        buttons.append([InlineKeyboardButton("⬅ Back", callback_data="back")])
 
-@app.on_callback_query(filters.regex("^match_"))
-async def match_menu(_, callback):
-    await callback.answer()
-    match_id = callback.data.split("_")[1]
-    print("[MATCH MENU] ID:", match_id)
+        await query.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        return
 
-    buttons = [
-        [InlineKeyboardButton("📈 Scorecard", callback_data=f"score_{match_id}")],
-        [InlineKeyboardButton("⬅ Back", callback_data="recent")]
-    ]
+    # ===== UPCOMING =====
+    if data == "upcoming":
+        matches = api.upcoming()[:10]
+        buttons = []
+        text = "🟢 UPCOMING MATCHES\n\n"
 
-    await safe_edit(callback.message, "📌 Match Options", InlineKeyboardMarkup(buttons))
+        for m in matches:
+            text += f"{m['team1']} vs {m['team2']}\n{m['status']}\n\n"
+            buttons.append(
+                [InlineKeyboardButton(
+                    f"{m['team1']} vs {m['team2']}",
+                    callback_data=f"match_{m['id']}"
+                )]
+            )
 
-# ---------------- SCORE ---------------- #
+        buttons.append([InlineKeyboardButton("⬅ Back", callback_data="back")])
 
-@app.on_callback_query(filters.regex("^score_"))
-async def score_handler(_, callback):
-    await callback.answer()
-    match_id = callback.data.split("_")[1]
-    print("[SCORE CLICKED]", match_id)
+        await query.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        return
 
-    data = await fetch(f"/mcenter/v1/{match_id}/scard")
+    # ===== MATCH SELECT =====
+    if data.startswith("match_"):
+        match_id = data.split("_")[1]
+        await query.message.edit_text(
+            "Select Match Details:",
+            reply_markup=match_detail_buttons(match_id)
+        )
+        return
 
-    print("[RAW SCORE DATA]", data)
+    # ===== SCORECARD =====
+    if data.startswith("score_"):
+        match_id = data.split("_")[1]
+        sc = api.scorecard(match_id)
+        text = "📊 SCORECARD\n\n"
 
-    text = format_scorecard(data)
+        if "scorecard" in sc:
+            for inn in sc["scorecard"]:
+                text += f"{inn['batteamname']} - {inn['score']}/{inn['wickets']}\n"
+        else:
+            text += "No scorecard available."
 
-    buttons = [
-        [InlineKeyboardButton("🔄 Refresh", callback_data=f"score_{match_id}")],
-        [InlineKeyboardButton("⬅ Back", callback_data=f"match_{match_id}")]
-    ]
+        await query.message.edit_text(
+            text,
+            reply_markup=match_detail_buttons(match_id)
+        )
+        return
 
-    await safe_edit(callback.message, text, InlineKeyboardMarkup(buttons))
+    # ===== SQUADS =====
+    if data.startswith("squad_"):
+        match_id = data.split("_")[1]
+        sq = api.squads(match_id)
+        text = "👥 SQUADS\n\n"
 
-# ---------------- RUN ---------------- #
+        for team_key in ["team1", "team2"]:
+            text += sq[team_key]["team"]["teamname"] + "\n"
 
-print("🚀 BOT STARTING...")
+        await query.message.edit_text(
+            text,
+            reply_markup=match_detail_buttons(match_id)
+        )
+        return
+
+    # ===== COMMENTARY =====
+    if data.startswith("comm_"):
+        match_id = data.split("_")[1]
+        cm = api.commentary(match_id)
+        text = "📝 COMMENTARY\n\n"
+
+        if "miniscore" in cm:
+            text += cm["miniscore"].get("lastwkt", "Live Update")
+        else:
+            text += "No commentary available."
+
+        await query.message.edit_text(
+            text,
+            reply_markup=match_detail_buttons(match_id)
+        )
+        return
+
+# ================= RUN =================
 app.run()
