@@ -84,6 +84,7 @@ def back_menu():
 def detail_menu(mid):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 Scorecard", callback_data=f"score_{mid}")],
+        [InlineKeyboardButton("📈 Strike Rate", callback_data=f"sr_{mid}")],
         [InlineKeyboardButton("👥 Squads", callback_data=f"squad_{mid}")],
         [InlineKeyboardButton("🔴 Live Status", callback_data=f"live_{mid}")],
         [InlineKeyboardButton("⬅ Back", callback_data="back")]
@@ -103,23 +104,48 @@ def format_scorecard(data):
         text += f"{inn['batteamname']} - {inn['score']}/{inn['wickets']} ({inn['overs']} ov)\n"
         text += "-" * 60 + "\n"
 
-        # Batting Header
-        text += f"{'Player':20} {'R':>3} {'B':>3} {'4s':>3} {'6s':>3} {'SR':>6}\n"
+        # Batting Header (NO SR)
+        text += f"{'Player':22} {'R':>4} {'B':>4} {'4s':>4} {'6s':>4}\n"
         text += "-" * 60 + "\n"
 
         for b in inn["batsman"]:
-            name = b['name'][:20]
-            text += f"{name:20} {b['runs']:>3} {b['balls']:>3} {b['fours']:>3} {b['sixes']:>3} {b['strkrate']:>6}\n"
+            name = b['name'][:22]
+            text += f"{name:22} {b['runs']:>4} {b['balls']:>4} {b['fours']:>4} {b['sixes']:>4}\n"
 
         text += "\n"
 
         # Bowling Header
-        text += f"{'Bowler':20} {'O':>4} {'M':>3} {'R':>3} {'W':>3} {'Eco':>6}\n"
+        text += f"{'Bowler':22} {'O':>4} {'M':>4} {'R':>4} {'W':>4} {'Eco':>6}\n"
         text += "-" * 60 + "\n"
 
         for bw in inn["bowler"]:
-            name = bw['name'][:20]
-            text += f"{name:20} {bw['overs']:>4} {bw['maidens']:>3} {bw['runs']:>3} {bw['wickets']:>3} {bw['economy']:>6}\n"
+            name = bw['name'][:22]
+            text += f"{name:22} {bw['overs']:>4} {bw['maidens']:>4} {bw['runs']:>4} {bw['wickets']:>4} {bw['economy']:>6}\n"
+
+        text += "\n"
+
+    text += "</pre>"
+    return text
+
+def format_strike_rate(data):
+    if "scorecard" not in data:
+        return "No data available."
+
+    text = "<b>📈 STRIKE RATE DETAILS</b>\n"
+    text += "<pre>"
+
+    for inn in data["scorecard"]:
+        text += "=" * 50 + "\n"
+        text += f"{inn['batteamname']}\n"
+        text += "-" * 50 + "\n"
+
+        text += f"{'Player':22} {'Runs':>5} {'Balls':>5} {'SR':>8}\n"
+        text += "-" * 50 + "\n"
+
+        for b in inn["batsman"]:
+            if int(b["balls"]) > 0:
+                name = b["name"][:22]
+                text += f"{name:22} {b['runs']:>5} {b['balls']:>5} {b['strkrate']:>8}\n"
 
         text += "\n"
 
@@ -266,6 +292,17 @@ async def cb(client, query):
 
             await query.message.edit_text(
                 text,
+                reply_markup=detail_menu(mid),
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        if d.startswith("sr_"):
+            mid = d.split("_")[1]
+            data = api.scorecard(mid)
+
+            await query.message.edit_text(
+                format_strike_rate(data),
                 reply_markup=detail_menu(mid),
                 parse_mode=ParseMode.HTML
             )
